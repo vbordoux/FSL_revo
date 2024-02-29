@@ -1,0 +1,2 @@
+	Selection	View	Channel	Begin Time (s)	End Time (s)	Low Freq (Hz)	High Freq (Hz)	Type
+7	8	Spectrogram 1	1	23.221566092	23.53683046	0.0	290.3	F

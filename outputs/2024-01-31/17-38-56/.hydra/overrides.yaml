@@ -1,0 +1,5 @@
+- path.root_dir=/home/reindert/Valentin_REVO/DCASE_2022/
+- set.features=false
+- set.train=false
+- set.eval=false
+- set.to_raven=true

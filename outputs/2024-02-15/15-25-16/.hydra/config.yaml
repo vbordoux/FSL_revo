@@ -1,0 +1,42 @@
+set:
+  features: false
+  train: false
+  eval: true
+  to_raven: false
+  metric_eval: true
+path:
+  test_name: GR03_TEST19_fixes_seglen
+  root_dir: /home/reindert/Valentin_REVO/FSL_revo
+  ground_truth_dir: /home/reindert/Valentin_REVO/FSL_revo/Ground truth csv
+  Model: ${path.root_dir}/Model
+  best_model: ${path.Model}/best_model.pth
+  last_model: ${path.Model}/last_model.pth
+features:
+  seg_len: 0.2
+  hop_seg: 0.1
+  eps: 2.220446049250313e-16
+  fmax: 2000
+  fmin: 20
+  sr: 16000
+  n_fft: 2500
+  n_mels: 128
+  hop_mel: 256
+  call_type: G
+train:
+  num_classes: 15
+  n_shot: 10
+  k_way: 5
+  device: cuda
+  lr_rate: 0.0001
+  scheduler_gamma: 0.5
+  scheduler_step_size: 10
+  epochs: 50
+  num_episodes: 100
+  encoder: AVES
+eval:
+  samples_neg: 50
+  iterations: 1
+  query_batch_size: 16
+  negative_set_batch_size: 32
+  threshold: 0.99
+  apply_filter: true

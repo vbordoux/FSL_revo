@@ -1,0 +1,6 @@
+Programming log
+
+7th february 2024
+Changing the number of positive annotations to generate the positive prototype works just fine.
+I still want to check how is the difference in dimension dealt with in the original baseline.
+Can I use the length of the annotation to improve the post processing and can I move to segment wise representation of both positive and negative calls.

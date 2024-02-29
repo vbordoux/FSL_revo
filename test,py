@@ -1,0 +1,137 @@
+import yaml
+import torchaudio
+import pandas as pd
+import numpy as np
+import os
+import csv
+from sklearn.manifold import TSNE
+import matplotlib.pyplot as plt
+import seaborn as sns
+# from utils import raven_to_annot_csv
+
+with open('config.yaml', 'r') as file:
+    conf = yaml.safe_load(file)
+
+
+# Move this function from utils to here because of an error when calling from utils, works well but not suppose to be here
+def raven_to_annot_csv(raven_filepath, dest_dir, annotation_column_name='Type', call_type=None):
+    """ Transform a raven file into a format compatible with Proto
+    Args:Returns normalized test features
+     - eval_filepath: path to the file containing the annotations
+
+     Out:
+     - Create a csv file with annotations
+    """
+    raven_df = pd.read_csv(raven_filepath, sep='\t')
+    annotation_df = pd.DataFrame({'Starttime':raven_df['Begin Time (s)'], 'Endtime':raven_df['End Time (s)'], 'Q':raven_df[annotation_column_name]})
+
+    source_dir, raven_filename = os.path.split(raven_filepath)
+    # Remove the calltype from the filename to generate the dictionnary key properly
+    if os.path.splitext(raven_filename)[0].endswith(call_type):
+        raven_filename = raven_filename[:-(4+len(call_type))] + raven_filename[-4:]
+
+    if os.path.basename(raven_filename).endswith('Table.1.selections.txt'):
+        raven_filename = raven_filename.replace('Table.1.selections.txt','txt')
+    
+    wav_filename = os.path.splitext(raven_filename)[0]+'.wav'
+    csv_filename = os.path.splitext(raven_filename)[0]+'.csv'
+
+    annotation_df['Audiofilename'] = wav_filename
+    annotation_df = annotation_df[['Audiofilename','Starttime','Endtime', 'Q']]
+
+    try:
+        annotation_df.to_csv(os.path.join(dest_dir,csv_filename), sep=',', index=False)
+        print("File saved at: ", os.path.join(dest_dir,csv_filename))
+    except Exception as e:
+         print("Could not save the annotations in a csv file:", e)
+
+
+# audio_filepath = "/home/reindert/Valentin_REVO/DCASE_2022/GR_Set/GR/sanctsound_audio_gr03_sanctsound_gr03_05_audio_SanctSound_GR03_05_5421_201005023324part1.wav"
+# annot_filepath = "/home/reindert/Valentin_REVO/DCASE_2022/GR_Set/sanctsound_audio_gr03_sanctsound_gr03_05_audio_SanctSound_GR03_05_5421_201005023324part1.Table.1.selections.txt"
+
+# sr = conf['features']['sr']
+# df_annot = pd.read_csv(annot_filepath, sep='\t')
+# waveform, sr = torchaudio.load(audio_filepath)
+# df_pos = df_annot[df_annot['Type'] == conf['features']['call_type']]
+# n_shot_df = df_pos.sort_values('Begin Time (s)').head(conf['train']['n_shot'])
+# X_pos = []
+# for i, row in n_shot_df.iterrows():
+#     start_wav = int(row['Begin Time (s)']*sr)
+#     end_wav = int(row['End Time (s)']*sr)
+#     X_pos.append(waveform[0][start_wav:end_wav])
+# print("X_pos created")
+
+# seg_len_in_sample = int(conf['features']['seg_len'] * sr)
+# num_segments = int(len(waveform[0]) // seg_len_in_sample)
+# X_neg = np.array_split(waveform[0][:num_segments * seg_len_in_sample], num_segments) # Last part of the file (size<segment) is discarded
+# print("X_neg created")
+
+# last_annot_endtime = int(n_shot_df.iloc[-1]['End Time (s)']*sr)
+# query_waveform = waveform[0][last_annot_endtime:]
+# num_segments_query = len(query_waveform) // seg_len_in_sample
+# X_query = np.array_split(query_waveform[:num_segments_query * seg_len_in_sample], num_segments_query)
+# print("X_query created")
+
+# print(f"X_pos shape {len(X_pos)}, X_neg shape {len(X_neg)}, X_query shape {len(X_query)}")
+         
+
+# # ------------------------------------------------------
+# # Generates annotation raven file with a given call type
+# # ------------------------------------------------------
+# path_to_csv = '/home/reindert/Valentin_REVO/DCASE_2022/GR_Set/'
+# dest_dir = '/home/reindert/Valentin_REVO/FSL_revo/Ground truth/' + conf['features']['call_type'] +'/'
+
+# if not os.path.exists(dest_dir):
+#     os.makedirs(dest_dir)
+
+# for file in os.listdir(path_to_csv):
+#     if file.endswith('.txt'):
+#         name, ext = os.path.splitext(os.path.basename(file))
+#         dest_file = name + conf['features']['call_type'] + ext
+
+#         df = pd.read_csv(path_to_csv+file, sep='\t')
+#         # Use the following line to save only
+#         # df_G=df[df['Type']==conf['features']['call_type']]
+#         # Use this line to label other call as UNK
+#         # df['Type'][df['Type']!=conf['features']['call_type']] = 'UNK'
+#         # Line to label all the call as POS
+#         df['Type'] = 'POS'
+#         df.to_csv(dest_dir+dest_file, sep='\t')
+
+
+# # ------------------------------------------------------
+# # Generates csv file per raven annotation files
+# # ------------------------------------------------------
+# source_dir = '/home/reindert/Valentin_REVO/FSL_revo/Ground truth/' + conf['features']['call_type'] +'/'
+# dest_dir = '/home/reindert/Valentin_REVO/FSL_revo/Ground truth csv/GR03part1_call_' + conf['features']['call_type'] +'/'
+# if not os.path.exists(dest_dir):
+#     os.makedirs(dest_dir)
+
+# for file in os.listdir(source_dir):
+#     if file.endswith('.txt'):
+#         raven_to_annot_csv(source_dir+file, dest_dir, call_type=conf['features']['call_type'])
+
+
+# # ------------------------------------------------------
+# # Generates the csv evaluation summary file (run only once)
+# # ------------------------------------------------------
+# csv_file_path = '/home/reindert/Valentin_REVO/FSL_revo/evaluation_summary.csv'
+# df = pd.DataFrame({'Timestamp':[], 'Test name':[], 'Call type':[], 'N shots':[], 'Precision':[], 'Recall':[], 'Fmeasure':[]})
+# df.to_csv(csv_file_path, index=False)
+
+
+# # ------------------------------------------------------
+# # Display TSNE embedding of the GR data
+# # ------------------------------------------------------
+
+
+wav_files_path = '/home/reindert/Valentin_REVO/DCASE_2022/GR_Set/GR'
+annot_files_path = '/home/reindert/Valentin_REVO/DCASE_2022/GR_Set'
+
+all_wav_files = [file for file in glob(os.path.join(wav_files_path,'*.wav'))]
+all_annot_files = [file for file in glob(os.path.join(annot_files_path,'*.txt'))]
+all_wav_files.sort()
+all_annot_files.sort()
+
+embed_X_dev = tsne_embedding(X_dev, n_components=2, perplexity=50, n_iter=250)
+plot_2d_embedding(embed_X_dev, y_dev)

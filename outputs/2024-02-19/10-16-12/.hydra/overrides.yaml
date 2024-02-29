@@ -1,0 +1,5 @@
+- set.features=false
+- set.train=false
+- set.eval=true
+- set.to_raven=true
+- set.metric_eval=true
