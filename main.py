@@ -14,6 +14,7 @@ from pathlib import Path
 import datetime
 from Model import AvesClassifier, ResNet
 
+# Github token: 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
 
 @hydra.main(config_name="config")
 def main(conf : DictConfig):
@@ -23,6 +24,7 @@ def main(conf : DictConfig):
     prediction_path = os.path.join(conf.path.root_dir,f'Prediction/{conf.path.test_name}{conf.features.call_type}.csv')
     post_process_prediction_path = os.path.join(conf.path.root_dir,f'Prediction/post_processed_{conf.path.test_name}_{conf.features.call_type}.csv')
 
+    # Load a pretrained model
     model_path = "/home/reindert/Valentin_REVO/Ressource/aves-base-bio.torchaudio.pt"
     model_config_path = "/home/reindert/Valentin_REVO/Ressource/aves-base-bio.torchaudio.model_config.json"
     emb_dim = 768
@@ -31,6 +33,8 @@ def main(conf : DictConfig):
     encoder.eval()
 
     if conf.set.features:
+        # Generate samples on the fly for training and validation set
+
         pass
 
     if conf.set.train:
@@ -39,7 +43,7 @@ def main(conf : DictConfig):
         init_seed()
     
         if conf.train.encoder == 'AVES':
-
+            
 
             pass
 

@@ -92,6 +92,7 @@ def evaluate_prototypes_AVES(conf=None, encoder = None, device= None, audio_file
     #     return [], [], 3600
    
     # If the file have enough annotation, process to evaluation
+    breakpoint()
     X_pos = torch.tensor(torch.stack(X_pos, dim=0))
     pos_dataset = torch.utils.data.TensorDataset(X_pos)
     pos_loader = torch.utils.data.DataLoader(dataset=pos_dataset, batch_sampler=None,batch_size=conf.eval.pos_batch_size,shuffle=False)
