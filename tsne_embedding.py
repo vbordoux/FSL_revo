@@ -214,114 +214,166 @@ def neg_proto_sample_between_pos(n_shot, pos_annot_bounds, waveform, mean_pos_le
 # # ---------------------------------------------------
 # import librosa
 
-# def sliding_window_cuting(audio_filepath, annot_filepath, wind_dur=1., coverage_threshold=0.2):
-#   '''
-#   Generate chunks of audio with label associated based on annotation file and audio file
-#   '''
+def sliding_window_cuting(audio_filepath, annot_filepath, wind_dur=1., win_coverage_threshold=0.2, annot_coverage_threshold=0.8):
+    '''
+    Generate chunks of audio with label associated based on annotation file and audio file
+    '''
 
-#   df_annot = pd.read_csv(annot_filepath, sep='\t')
-#   waveform, sr = librosa.load(audio_filepath, sr=48000)
+    df_annot = pd.read_csv(annot_filepath, sep='\t')
+    waveform, sr = librosa.load(audio_filepath, sr=48000)
 
-#   # Calculate frame length in samples
-#   frame_length_sample = int(wind_dur * sr)
+    # Apply bandpass filter
+    order = 4 # in previous test if order is increased the filter is unstable
+    cutoffs = [20, 2000]
+    np_waveform = butter_bandpass_filter(waveform, cutoffs, sr, order)
 
-#   # Create a list to store chunks and start times
-#   chunks = []
-#   start_time = []
+    # Uncomment the line below to check the frequency response of the filter selected
+    # test_filter_response_stability(waveform, order, cutoffs, self.sr)
 
-#   # Iterate through the audio waveform and create chunks
-#   for i in range(0, len(waveform) - frame_length_sample + 1, frame_length_sample):
-#       chunk = waveform[i:i+frame_length_sample]
-#       chunks.append(chunk)
-#       start_time.append(i / sr)  # Convert sample index to time in seconds
+    waveform = torch.Tensor.float(torch.from_numpy(np_waveform))
+        
+    # Normalize the waveform
+    waveform = (waveform - waveform.mean())/waveform.std()
+    waveform = waveform.numpy()
 
-#   df_chunks = pd.DataFrame({'Audio': chunks, 'Start_time': start_time})
+    # Calculate frame length in samples
+    frame_length_sample = int(wind_dur * sr)
 
-#   # Create label if the frame contains annotation
-#   labels = []
+    # Create a list to store chunks and start times
+    chunks = []
+    start_time = []
 
-#   for i, chunk in tqdm(df_chunks.iterrows()):
-#       start_window = chunk['Start_time']
-#       end_window = start_window + wind_dur
+    # Iterate through the audio waveform and create chunks
+    for i in range(0, len(waveform) - frame_length_sample + 1, frame_length_sample):
+        chunk = waveform[i:i+frame_length_sample]
+        chunks.append(chunk)
+        start_time.append(i / sr)  # Convert sample index to time in seconds
 
-#       # Check if there are annotations in the current window
-#       begin_anot_presence = (start_window < df_annot['Begin Time (s)']) & (df_annot['Begin Time (s)'] < end_window)
-#       end_anot_presence = (start_window < df_annot['End Time (s)']) & (df_annot['End Time (s)']< end_window)
-#       full_anot_presence = ((df_annot['Begin Time (s)'] < start_window) & (start_window < df_annot['End Time (s)'])) \
-#                               &((df_annot['Begin Time (s)'] < end_window) & (end_window < df_annot['End Time (s)']))
+    df_chunks = pd.DataFrame({'Audio': chunks, 'Start_time': start_time})
 
-#       # Extract the annotations that overlap with the chunk
-#       annotations_in_window = df_annot[(begin_anot_presence) | (end_anot_presence) | (full_anot_presence)]
+    # Create label if the frame contains annotation
+    labels = []
 
-#       # Calculate total annotation duration within the window
+    for i, chunk in tqdm(df_chunks.iterrows()):
+        start_window = chunk['Start_time']
+        end_window = start_window + wind_dur
 
-#       annotations_in_window['Duration'] = annotations_in_window.apply(
-#           lambda row: min(end_window, row['End Time (s)']) - max(start_window, row['Begin Time (s)']),
-#           axis=1
-#       )
-      
-#       # annotations_duration = annotations_in_window.apply(
-#       #     lambda row: min(end_window, row['End Time (s)']) - max(start_window, row['Begin Time (s)']),
-#       #     axis=1
-#       # )
+        # Initialize the label as noise that will change depending on two conditions
+        label = 'Noise'
 
-#       total_annotation_duration = annotations_in_window['Duration'].sum()
-#       # Select type where duration is maximum
-#       if len(annotations_in_window)>0:
-#         longest_annotation = annotations_in_window.loc[annotations_in_window['Duration'].idxmax()]['Type']
+        # Check if there are annotations in the current window
+        begin_anot_presence = (start_window < df_annot['Begin Time (s)']) & (df_annot['Begin Time (s)'] < end_window)
+        end_anot_presence = (start_window < df_annot['End Time (s)']) & (df_annot['End Time (s)']< end_window)
+        full_anot_presence = ((df_annot['Begin Time (s)'] < start_window) & (start_window < df_annot['End Time (s)'])) \
+                                &((df_annot['Begin Time (s)'] < end_window) & (end_window < df_annot['End Time (s)']))
 
-#       # If more than the coverage threshold of the annotation is within the window, assign a positive label
-#       label = longest_annotation if total_annotation_duration > coverage_threshold * wind_dur else 'Noise'
-#       labels.append(label)
+        # Extract the annotations that overlap with the chunk
+        annotations_in_window = df_annot[(begin_anot_presence) | (end_anot_presence) | (full_anot_presence)]
 
-#   df_chunks['Label'] = labels
+        # Calculate total annotation duration within the window
+        total_annotation_duration = 0
 
-#   print('Number of samples in each of the class: ')
-#   print(df_chunks['Label'].value_counts())
+        annotations_in_window['Duration'] = annotations_in_window.apply(
+          lambda row: min(end_window, row['End Time (s)']) - max(start_window, row['Begin Time (s)']),
+          axis=1)
 
-#   return df_chunks
+        # Assign a label to the chunk if at least one annotation is fully (depends on annot_coverage_threshold) within the window
+        for _, annotation in annotations_in_window.iterrows():
+
+            total_annotation_duration += annotation['Duration']
+            if annotation['Duration'] / (annotation['End Time (s)'] - annotation['Begin Time (s)']) >= annot_coverage_threshold:
+                label = annotation['Type']
+
+        # If a significant part of the window is covered by annotation, find the longest one to assign the label
+        if total_annotation_duration > win_coverage_threshold * wind_dur:
+            label = annotations_in_window.loc[annotations_in_window['Duration'].idxmax()]['Type'] 
+        
+        labels.append(label)
+
+    df_chunks['Label'] = labels
+
+    print('Number of samples in each of the class: ')
+    print(df_chunks['Label'].value_counts())
+
+    return df_chunks
+
+import librosa
+from scipy.signal import butter, lfilter
+
+def butter_bandpass(cutoffs, fs, order=5):
+    return butter(order, cutoffs, fs=fs, btype='band', analog=False)
 
 
+def butter_bandpass_filter(audio, cutoffs, fs, order=5):
+    b, a = butter_bandpass(cutoffs, fs, order=order)
+    y = lfilter(b, a, audio)
+    return y
 
-# if __name__ == '__main__':
 
-#     device = 'cuda'
-#     model_path = "/home/reindert/Valentin_REVO/Ressource/aves-base-bio.torchaudio.pt"
-#     model_config_path = "/home/reindert/Valentin_REVO/Ressource/aves-base-bio.torchaudio.model_config.json"
-#     emb_dim = 768
-#     sr=16000
-#     call_list = ['A', 'B', 'C', 'D', 'E', 'F', 'G']
+if __name__ == '__main__':
 
-#     encoder = AvesClassifier(model_config_path, model_path, trainable=False, embedding_dim=emb_dim, sr=sr)
-#     encoder.to(device)
-#     encoder.eval()
+    device = 'cuda'
+    model_path = "/home/reindert/Valentin_REVO/Ressource/aves-base-bio.torchaudio.pt"
+    model_config_path = "/home/reindert/Valentin_REVO/Ressource/aves-base-bio.torchaudio.model_config.json"
+    emb_dim = 768
+    sr=16000
+    call_list = ['A', 'B', 'C', 'D', 'E', 'F', 'G']
 
-#     # Load audio file and resample to 48000Hz
-#     filepath = '/home/reindert/Valentin_REVO/DCASE_2022/GR_Set/GR/SanctSound_GR03_05_5421_201005023324part1.wav'
-#     annot_path = '/home/reindert/Valentin_REVO/DCASE_2022/GR_Set/SanctSound_GR03_05_5421_201005023324part1.Table.1.selections.txt'
+    encoder = AvesClassifier(model_config_path, model_path, trainable=False, embedding_dim=emb_dim, sr=sr)
+    encoder.to(device)
+    encoder.eval()
 
-#     sig, rate = librosa.load(filepath, sr=48000)
+    # Load audio file and resample to 48000Hz
+    filepath = '/home/reindert/Valentin_REVO/DCASE_2022/GR_Set/GR/SanctSound_GR03_05_5421_201005023324part1.wav'
+    annot_path = '/home/reindert/Valentin_REVO/DCASE_2022/GR_Set/SanctSound_GR03_05_5421_201005023324part1.Table.1.selections.txt'
 
-#     df_chunks = sliding_window_cuting(filepath, annot_path, wind_dur = 3., coverage_threshold = 0)
+    sig, rate = librosa.load(filepath, sr=48000)
+
+    wind_dur = 1
+    win_coverage_threshold = 0.2
+    annot_coverage_threshold = 0.8
+
+    df_chunks = sliding_window_cuting(filepath, annot_path, wind_dur, win_coverage_threshold, annot_coverage_threshold)
     
-#     # Resampling ta AVES native freq
-#     df_chunks['Audio'] = df_chunks['Audio'].apply(lambda x: librosa.resample(y = x, orig_sr = 48000, target_sr = 16000))
+    # Resampling ta AVES native freq
+    # df_chunks['Audio'] = df_chunks['Audio'].apply(lambda x: librosa.resample(y = x, orig_sr = 48000, target_sr = 16000))
 
-#     chunks = [row['Audio'] for _idx, row in df_chunks.iterrows()]
-#     labels = [row['Label'] for _idx, row in df_chunks.iterrows()]
+    # Remove noise for visualization
+    df_chunks = df_chunks[df_chunks['Label']!='Noise']
 
-#     feat_array = torch.Tensor().to(device)
+    chunks = [row['Audio'] for _idx, row in df_chunks.iterrows()]
+    labels = [row['Label'] for _idx, row in df_chunks.iterrows()]
+
+    feat_array = torch.Tensor().to(device)
 
     
-#     # Add positive embeddings to the main array
-#     for sample in tqdm(chunks):
-#         x_pos = Tensor(sample).unsqueeze(0)
-#         x_pos = x_pos.to(device)
-#         with torch.no_grad():
-#             feat_pos = encoder(x_pos)
-#         feat_array = torch.cat((feat_array, feat_pos), dim=0)
-            
-#     # Display TSNE
-#     # labels = np.zeros(embeddings.shape[0])
-#     tsne_X_2d = tsne_embedding(feat_array.cpu(), n_components=2, perplexity=10, n_iter=1000)
-#     plot_2d_embedding(tsne_X_2d, labels)
+    # # Add positive embeddings to the main array
+    for sample in tqdm(chunks):
+        x_pos = Tensor(sample).unsqueeze(0)
+        x_pos = x_pos.to(device)
+        with torch.no_grad():
+            feat_pos = encoder(x_pos)
+        feat_array = torch.cat((feat_array, feat_pos), dim=0)
+
+    # # Visualize some annotations
+    n_fft = 2048
+    fig, axs = plt.subplots(4, 2, sharex=True, sharey=True, figsize=(12,8))
+    ax_idx = 0
+
+    for datapoint_idx in np.random.randint(0, len(chunks), size=8):
+        ax = axs.flatten()[ax_idx]
+        datapoint = chunks[datapoint_idx]
+        D = librosa.stft(datapoint, n_fft=n_fft)
+        S_db = librosa.amplitude_to_db(np.abs(D), ref=np.max)
+
+        librosa.display.specshow(S_db, y_axis='linear', sr=48000,
+                                    x_axis='time', ax=ax, n_fft=n_fft)
+        ax.set_title(labels[datapoint_idx])
+        ax_idx+=1
+    plt.tight_layout()
+    plt.show()
+
+
+    # Display TSNE
+    # tsne_X_2d = tsne_embedding(feat_array.cpu(), n_components=2, perplexity=10, n_iter=1000)
+    # plot_2d_embedding(tsne_X_2d, labels)
