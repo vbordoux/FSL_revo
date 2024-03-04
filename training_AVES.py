@@ -15,6 +15,8 @@ import json
 from tqdm import tqdm
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, f1_score
 from sklearn.model_selection import train_test_split
+from scipy.signal import butter, lfilter
+import copy
 
 
 class AvesClassifier(nn.Module):
@@ -127,7 +129,7 @@ def train_one_epoch(model, dataloader, optimizer, loss_function):
 
 
 
-def test_one_epoch(model, dataloader, loss_function, epoch_idx):
+def test_one_epoch(model, dataloader, loss_function, epoch_idx, labels):
     """ Obtain loss and F1 scores on test set """
 
     set_eval_aves(model)
@@ -152,7 +154,7 @@ def test_one_epoch(model, dataloader, loss_function, epoch_idx):
     
     # Get confusion matrix
     cm = confusion_matrix(all_annotations, all_predictions)
-    disp = ConfusionMatrixDisplay(confusion_matrix=cm)
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=labels)
     if epoch_idx == 19:
         disp.plot()
         disp.ax_.set_title(f"Test epoch {epoch_idx}")
@@ -162,8 +164,9 @@ def test_one_epoch(model, dataloader, loss_function, epoch_idx):
     # Report
     print(f"Mean test loss: {all_losses.mean():.3f}, Macro-average F1: {macro_average_f1:.3f}")
     print("F1 by class:")
-    print({k: np.round(s,decimals=4) for (k,s) in zip([0, 1], f1_scores)})
-    return
+    print({k: np.round(s,decimals=4) for (k,s) in zip(labels, f1_scores)})
+
+    return all_losses.mean()
 
 
 
@@ -174,28 +177,38 @@ def run(
       model_config_path,
       learning_rate,
       n_epochs,
-      n_class
+      n_class,
+      labels
       ):
 
+    print("Setting up model")
+    model = AvesClassifier(model_config_path, model_path, n_class, False)
+    if torch.cuda.is_available():
+        model.cuda()
 
-  print("Setting up model")
-  model = AvesClassifier(model_config_path, model_path, n_class, False)
-  if torch.cuda.is_available():
-    model.cuda()
+    print("Setting up optimizers")
+    optimizer = torch.optim.Adam(model.classifier_head.parameters(), lr=learning_rate)
 
-  print("Setting up optimizers")
-  optimizer = torch.optim.Adam(model.classifier_head.parameters(), lr=learning_rate)
+    print("Setting up loss function")
+    loss_function = nn.CrossEntropyLoss()
 
-  print("Setting up loss function")
-  loss_function = nn.CrossEntropyLoss()
+    train_losses = []
+    test_losses = []
+    best_loss = 1000
+        
+    for epoch_idx in range(n_epochs):
+        print(f"~~ Training epoch {epoch_idx}")
+        train_loss = np.mean(train_one_epoch(model, train_dataloader, optimizer, loss_function))
+        train_losses.append(train_loss)
+        print(f"~~ Testing epoch {epoch_idx}")
+        test_loss = test_one_epoch(model, test_dataloader, loss_function, epoch_idx, labels).item() # Get scalar only to avoid device and torch compatibility issue
+        if test_loss < best_loss:
+            print("Current best model updated on epoch: ", epoch_idx)
+            best_loss = test_loss
+            best_model = copy.deepcopy(model)
+        test_losses.append(test_loss)
 
-  for epoch_idx in range(n_epochs):
-    print(f"~~ Training epoch {epoch_idx}")
-    train_one_epoch(model, train_dataloader, optimizer, loss_function)
-    print(f"~~ Testing epoch {epoch_idx}")
-    test_one_epoch(model, test_dataloader, loss_function, epoch_idx)
-
-  return
+    return best_model, train_losses, test_losses
 
 
 
@@ -217,6 +230,16 @@ def neg_proto_sample_between_pos(n_shot, pos_annot_bounds, waveform, mean_pos_le
 
 
 
+def butter_bandpass(cutoffs, fs, order=5):
+    return butter(order, cutoffs, fs=fs, btype='band', analog=False)
+
+
+def butter_bandpass_filter(audio, cutoffs, fs, order=5):
+    b, a = butter_bandpass(cutoffs, fs, order=order)
+    y = lfilter(b, a, audio)
+    return y
+
+
 
 if __name__ == '__main__':
 
@@ -234,39 +257,40 @@ if __name__ == '__main__':
     Y_all = []
     X_test = []
     Y_test = []
-    call_list = ['A', 'B', 'C', 'D', 'E', 'F', 'G']
+    call_list = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K']
+    call_list = ['G']
 
-    index_for_eval = [1,3]
+    index_for_eval = [4,5]
 
     for audio_file, annotation_file, file_idx in zip(all_wav_files, all_annot_files, range(len(all_wav_files))):
         
-        print(f"Processing file: {os.path.basename(audio_file)} ")
         if file_idx  in index_for_eval:
-            print("File used for evaluation")
+            print(f"{os.path.basename(audio_file)} - File used for Evaluation")
         else:
-            print("File used for training")
+            print(f"{os.path.basename(audio_file)} - File used for Training")
         
         # Load annotation and wav file
         df_annot = pd.read_csv(annotation_file, sep='\t')
-        waveform, file_sr = torchaudio.load(audio_file, )
-        if file_sr != 16000:
-            transform = torchaudio.transforms.Resample(file_sr, 16000)
+        waveform, sr = torchaudio.load(audio_file, )
+
+        # Resample to 16kHz
+        if sr != 16000:
+            transform = torchaudio.transforms.Resample(sr, 16000)
             waveform = transform(waveform)
             sr = 16000
         
         # Select only the call type in the list
-        # df_annot = df_annot[df_annot['Type'].isin(call_list)]
+        df_annot = df_annot[df_annot['Type'].isin(call_list)]
 
         # Apply bandpass filter
-        # if apply_filter:
-        #     order = 4 # in previous test if order is increased the filter is unstable
-        #     cutoffs = [self.fmin, self.fmax]
-        #     np_waveform = butter_bandpass_filter(waveform, cutoffs, self.sr, order)
+        order = 4 # in previous test if order is increased the filter is unstable
+        cutoffs = [20, 2000]
+        np_waveform = butter_bandpass_filter(waveform, cutoffs, sr, order)
 
-            # Uncomment the line below to check the frequency response of the filter selected
-            # test_filter_response_stability(waveform, order, cutoffs, self.sr)
+        # Uncomment the line below to check the frequency response of the filter selected
+        # test_filter_response_stability(waveform, order, cutoffs, self.sr)
 
-            # waveform = Tensor.float(from_numpy(np_waveform))
+        waveform = torch.Tensor.float(torch.from_numpy(np_waveform))
         
         # Normalize the waveform
         waveform = (waveform - waveform.mean())/waveform.std()
@@ -281,16 +305,17 @@ if __name__ == '__main__':
             
             pos_annot_bounds.append((start_wav, end_wav))
             X_pos.append(waveform[0][start_wav:end_wav])
-            # Y_pos.append(row['Type'])
-            Y_pos.append(1)
+            Y_pos.append(row['Type'])
+            # Y_pos.append(1)
 
         
         # Compute the mean duration of positive sample
         mean_length = sum(len(sample) for sample in X_pos) / len(X_pos)
+        print(f"Mean length of positive sample: {mean_length}")
 
         # Draw randomly as many negative sample as positive of average positive sample duration
         X_neg = neg_proto_sample_between_pos(len(X_pos), pos_annot_bounds, waveform, mean_length)
-        Y_neg = [0]*len(X_neg)
+        Y_neg = ['Noise']*len(X_neg)
         filename = [audio_file]*(len(X_pos)+len(X_neg))
 
         # Extract samples for each files
@@ -301,13 +326,27 @@ if __name__ == '__main__':
             X_all += X_pos + X_neg
             Y_all += Y_pos + Y_neg
 
+
+    # Add all unique value of call type in a list
+    classes = pd.Categorical(Y_all)
+    Y_all = classes.codes
+    labels = classes.categories
+
+    classes_eval = pd.Categorical(Y_test)
+    Y_test = classes_eval.codes
+    labels_test = classes_eval.categories
+    
+    assert set(labels) == set(labels_test), f"Error: Training and test classes are different"
+    # Todo, add class of the training set to the labels set if missing (0 occurence)
+
     # If the file have enough annotation, process to evaluation
     # pad or clip X samples to the same duration
+    sample_dur = 0.5
     for idx, x in zip(range(len(X_all)), X_all):
-        X_all[idx] = pad_to_duration(x, 16000, 0.5)
+        X_all[idx] = pad_to_duration(x, sr, sample_dur)
 
     for idx, x in zip(range(len(X_test)), X_test):
-        X_test[idx] = pad_to_duration(x, 16000, 0.5)
+        X_test[idx] = pad_to_duration(x, sr, sample_dur)
 
     # Convert the list of array into a multidimentional tensor
     X_all = torch.stack(X_all)
@@ -338,24 +377,22 @@ if __name__ == '__main__':
     y_test = torch.tensor(Y_test)
 
     train_dataset = torch.utils.data.TensorDataset(x_train, y_train)
-    train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_sampler=None,batch_size=8,shuffle=True)
+    train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_sampler=None,batch_size=32,shuffle=True)
 
     test_dataset = torch.utils.data.TensorDataset(x_test, y_test)
-    test_loader = torch.utils.data.DataLoader(dataset=test_dataset, batch_sampler=None,batch_size=8,shuffle=False)
+    test_loader = torch.utils.data.DataLoader(dataset=test_dataset, batch_sampler=None,batch_size=16,shuffle=False)
 
     learning_rate = 0.001
     n_epochs = 20
     model_path = "/home/reindert/Valentin_REVO/Ressource/aves-base-bio.torchaudio.pt"
     model_config_path = "/home/reindert/Valentin_REVO/Ressource/aves-base-bio.torchaudio.model_config.json"
 
-    run(
-      train_loader,
-      test_loader,
-      model_path,
-      model_config_path,
-      learning_rate,
-      n_epochs,
-      n_class=2
-    )
-    
+    best_model, train_losses, test_losses = run(train_loader, test_loader, model_path,model_config_path,learning_rate,n_epochs,n_class=len(labels), labels=labels)
+    plt.show()
+
+    fig, ax = plt.subplots()
+    plt.plot(range(n_epochs), train_losses, color='blue', label='Average training Loss')
+    plt.plot(range(n_epochs), test_losses, color='orange', label='Average testing Loss')
+    plt.legend()
+    plt.title("Error per epoch during training and testing")
     plt.show()

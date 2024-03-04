@@ -135,74 +135,74 @@ def neg_proto_sample_between_pos(n_shot, pos_annot_bounds, waveform, mean_pos_le
 
 
 
-if __name__ == '__main__':
+# if __name__ == '__main__':
 
-    device = 'cuda'
-    model_path = "/home/reindert/Valentin_REVO/Ressource/aves-base-bio.torchaudio.pt"
-    model_config_path = "/home/reindert/Valentin_REVO/Ressource/aves-base-bio.torchaudio.model_config.json"
-    emb_dim = 768
-    sr=16000
-    call_list = ['A', 'B', 'C', 'D', 'E', 'F', 'G']
+#     device = 'cuda'
+#     model_path = "/home/reindert/Valentin_REVO/Ressource/aves-base-bio.torchaudio.pt"
+#     model_config_path = "/home/reindert/Valentin_REVO/Ressource/aves-base-bio.torchaudio.model_config.json"
+#     emb_dim = 768
+#     sr=16000
+#     call_list = ['A', 'B', 'C', 'D', 'E', 'F', 'G']
 
-    encoder = AvesClassifier(model_config_path, model_path, trainable=False, embedding_dim=emb_dim, sr=sr)
-    encoder.to(device)
-    encoder.eval()
+#     encoder = AvesClassifier(model_config_path, model_path, trainable=False, embedding_dim=emb_dim, sr=sr)
+#     encoder.to(device)
+#     encoder.eval()
 
-    # Create waveform Dataloader if AVES
-    gen_eval = Datagen_test_wav_for_tsne(sr=sr, seg_len=0.2, fmin=50, fmax=2000)
+#     # Create waveform Dataloader if AVES
+#     gen_eval = Datagen_test_wav_for_tsne(sr=sr, seg_len=0.2, fmin=50, fmax=2000)
 
-    wav_files_path = '/home/reindert/Valentin_REVO/DCASE_2022/GR_Set/GR'
-    annot_files_path = '/home/reindert/Valentin_REVO/DCASE_2022/GR_Set'
+#     wav_files_path = '/home/reindert/Valentin_REVO/DCASE_2022/GR_Set/GR'
+#     annot_files_path = '/home/reindert/Valentin_REVO/DCASE_2022/GR_Set'
 
-    # TODO change glob to listdir
-    all_wav_files = [file for file in glob(os.path.join(wav_files_path,'*.wav'))]
-    all_annot_files = [file for file in glob(os.path.join(annot_files_path,'*.txt'))]
-    all_wav_files.sort()
-    all_annot_files.sort()
+#     # TODO change glob to listdir
+#     all_wav_files = [file for file in glob(os.path.join(wav_files_path,'*.wav'))]
+#     all_annot_files = [file for file in glob(os.path.join(annot_files_path,'*.txt'))]
+#     all_wav_files.sort()
+#     all_annot_files.sort()
     
-    # Use to run on all files
-    feat_array = torch.Tensor().to(device)
-    y_all_files = []
+#     # Use to run on all files
+#     feat_array = torch.Tensor().to(device)
+#     y_all_files = []
 
-    for audio_file, annotation_file in zip(all_wav_files, all_annot_files):
+#     for audio_file, annotation_file in zip(all_wav_files, all_annot_files):
         
-        # Use to run per file
-        feat_array = torch.Tensor().to(device)
-        y_all_files = []
+#         # Use to run per file
+#         feat_array = torch.Tensor().to(device)
+#         y_all_files = []
 
-        # Get embedding from all positive sample
-        X_pos, Y_pos, X_neg, Y_neg = gen_eval.generate_eval(audio_file, annotation_file, call_list, apply_filter=True)
+#         # Get embedding from all positive sample
+#         X_pos, Y_pos, X_neg, Y_neg = gen_eval.generate_eval(audio_file, annotation_file, call_list, apply_filter=True)
 
-        print('\n ---------------------------------------------------------------')
-        print(f" File {os.path.basename(audio_file)}")
-        print(' ---------------------------------------------------------------')
+#         print('\n ---------------------------------------------------------------')
+#         print(f" File {os.path.basename(audio_file)}")
+#         print(' ---------------------------------------------------------------')
      
-        # Add positive embeddings to the main array
-        for sample in tqdm(X_pos):
-            x_pos = Tensor(sample).unsqueeze(0)
-            x_pos = x_pos.to(device)
-            with torch.no_grad():
-                feat_pos = encoder(x_pos)
-            feat_array = torch.cat((feat_array, feat_pos), dim=0)
-        # Add positive labels to the main array
-        y_all_files += Y_pos
+#         # Add positive embeddings to the main array
+#         for sample in tqdm(X_pos):
+#             x_pos = Tensor(sample).unsqueeze(0)
+#             x_pos = x_pos.to(device)
+#             with torch.no_grad():
+#                 feat_pos = encoder(x_pos)
+#             feat_array = torch.cat((feat_array, feat_pos), dim=0)
+#         # Add positive labels to the main array
+#         y_all_files += Y_pos
 
-        # Add negative embeddings to the main array
-        for sample in tqdm(X_neg):
-            x_neg = Tensor(sample).unsqueeze(0)
-            x_neg = x_neg.to(device)
-            with torch.no_grad():
-                feat_neg = encoder(x_neg)
-            feat_array = torch.cat((feat_array, feat_neg), dim=0)
-        # Add negative labels to the main array
-        y_all_files += Y_neg
+#         # Add negative embeddings to the main array
+#         for sample in tqdm(X_neg):
+#             x_neg = Tensor(sample).unsqueeze(0)
+#             x_neg = x_neg.to(device)
+#             with torch.no_grad():
+#                 feat_neg = encoder(x_neg)
+#             feat_array = torch.cat((feat_array, feat_neg), dim=0)
+#         # Add negative labels to the main array
+#         y_all_files += Y_neg
 
-        # Remove indentation bellow to run on all files
-        feat_array = feat_array.cpu()
+#         # Remove indentation bellow to run on all files
+#         feat_array = feat_array.cpu()
 
-        # Compute 2D embedding with T-SNE and display it
-        tsne_X_2d = tsne_embedding(feat_array, n_components=2, perplexity=25, n_iter=500)
-        plot_2d_embedding(tsne_X_2d, y_all_files)
+#         # Compute 2D embedding with T-SNE and display it
+#         tsne_X_2d = tsne_embedding(feat_array, n_components=2, perplexity=25, n_iter=500)
+#         plot_2d_embedding(tsne_X_2d, y_all_files)
 
 
 
